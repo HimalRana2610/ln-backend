@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -14,6 +15,32 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.exceptions import AppError, app_error_handler
 from app.db.session import engine
+
+
+def _configure_logging() -> None:
+    """Give application loggers somewhere to write.
+
+    Uvicorn configures only its own loggers, so without this every
+    `logger.info` in the app is silently discarded — which turns a background
+    task that never ran into an invisible problem.
+
+    Note the two levels. The root stays at WARNING even in debug mode: setting
+    it to DEBUG turns on asyncio, SQLAlchemy and botocore internals, which
+    buries the application's own output and, in the test suite, was enough to
+    take a 5-second run to 54 seconds. Only the `ln.*` namespace follows
+    `DEBUG`.
+    """
+    root = logging.getLogger()
+
+    if not root.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)-5s [%(name)s] %(message)s")
+        )
+        root.addHandler(handler)
+
+    root.setLevel(logging.WARNING)
+    logging.getLogger("ln").setLevel(logging.DEBUG if settings.debug else logging.INFO)
 
 
 @asynccontextmanager
@@ -42,6 +69,8 @@ async def validation_error_handler(_: Request, exc: Exception) -> JSONResponse:
 
 
 def create_app() -> FastAPI:
+    _configure_logging()
+
     app = FastAPI(
         title=settings.project_name,
         version="0.1.0",

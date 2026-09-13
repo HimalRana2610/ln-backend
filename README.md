@@ -84,6 +84,10 @@ Copy `.env.example` to `.env`. Full descriptions are in that file.
 | `S3_ENDPOINT_URL` | no | Omit for real AWS S3; set for MinIO or R2 |
 | `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | no | Required once uploads land |
 | `S3_BUCKET` | no | Default `lecture-note` |
+| `GEMINI_API_KEY` | for notes | From https://aistudio.google.com/apikey. Without it every generation fails with a clear message |
+| `GEMINI_API_KEY_BACKUP` | no | Takes over when the primary key is rate limited |
+| `GEMINI_MODEL` | no | Default `gemini-3.7-flash`. Google closes old models to **new** API keys — a retired model still lists but 404s on the first call, which looks like a broken key. Change this, not the code |
+| `SUPADATA_API_KEY` | for YouTube | Transcript fetching only; audio, PDF and text need only the Gemini key |
 | `DB_SERVERLESS` | no | Default false. Set **true** only on a serverless host — swaps to `NullPool` and disables prepared-statement caching, both required behind a transaction pooler. See [../DEPLOYMENT.md](../DEPLOYMENT.md) |
 
 ## API
@@ -111,6 +115,12 @@ Everything is under `/api/v1`. Interactive docs at `/docs` while running.
 | GET | `/classrooms/{id}/members` | Bearer | Member list |
 | PATCH | `/classrooms/{id}/members/{user_id}` | Bearer | Change role (owner only) |
 | DELETE | `/classrooms/{id}/members/{user_id}` | Bearer | Remove (owner or teacher) |
+| POST | `/uploads/presign` | Bearer | URL to PUT a file straight to storage |
+| POST | `/classrooms/{id}/notes` | Bearer | Queue generation — returns **202**, `status: pending` |
+| GET | `/classrooms/{id}/notes` | Bearer | Notes in a class; `?date=` filters. Omits the Markdown body |
+| GET | `/notes/{id}` | Bearer | One note, with its Markdown |
+| PATCH | `/notes/{id}` | Bearer | Edit (author or teacher) |
+| DELETE | `/notes/{id}` | Bearer | Delete (author or teacher) |
 
 A non-member gets **404, not 403**, on any classroom route — a stranger must not
 be able to confirm that a classroom id exists.
@@ -162,10 +172,40 @@ passing test would lie to you.
 5. Routes in `app/api/v1/routes/`, registered in `app/api/v1/router.py`.
 6. Tests in `tests/`.
 
+## Note generation
+
+Generation takes minutes, so it never happens inside a request.
+`POST .../notes` returns **202** with `status: pending`; the client polls until
+`ready` or `failed`.
+
+Who does the work depends on `NOTES_INLINE_WORKER`:
+
+| Deployment | Setting | Runs generation |
+| --- | --- | --- |
+| Local, Docker, Render | `true` (default) | A FastAPI background task |
+| Vercel / serverless | `false` | `python -m app.worker`, running elsewhere |
+
+A serverless function is killed the moment it responds, so a background task
+there never finishes. The worker is a polling loop over the same table; claims
+use `SELECT … FOR UPDATE SKIP LOCKED` so several can run at once, and a note
+left in `processing` past `NOTES_STALE_AFTER_MINUTES` is reclaimed.
+
+`GEMINI_API_KEY` must be set, or every note fails with a clear message.
+
+The model name is `GEMINI_MODEL`, not a constant, because Google closes older
+models to new API keys on a rolling basis. A retired model still appears in
+`models.list()` but returns 404 on the first real call — which reads like an
+invalid key, so it is worth recognising.
+
+Generated Markdown is constrained by the prompt to a strict Mermaid subset and
+to Unicode rather than LaTeX, because neither client renders maths and an
+invalid diagram otherwise displays as an error box. `ln-web` validates every
+diagram before rendering and downgrades invalid ones to code blocks.
+
 ## Status
 
-Auth and classrooms are complete: **43 tests** passing in ~4s, ruff clean, mypy
-strict clean.
+Auth, classrooms and notes are complete: **91 tests** passing in ~6s, ruff
+clean, mypy strict clean.
 
-Notes and AI generation are next — see
+Materials and assignments are next — see
 [../docs/PROGRESS.md](../docs/PROGRESS.md).

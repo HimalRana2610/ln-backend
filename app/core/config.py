@@ -59,6 +59,34 @@ class Settings(BaseSettings):
     # which needs a different pooling and prepared-statement strategy entirely.
     db_serverless: bool = False
 
+    # --- AI ---------------------------------------------------------------
+    # https://aistudio.google.com/apikey. The backup key takes over when the
+    # primary one is rate limited, which a single free-tier key reliably is.
+    gemini_api_key: str = ""
+    gemini_api_key_backup: str = ""
+
+    # Google retires model names on a schedule, and closes older ones to *new*
+    # API keys well before deleting them — a retired model still appears in
+    # `models.list()` but returns 404 on the first real call. That failure looks
+    # like a broken key, so this is configurable: when it happens, change the
+    # env var rather than shipping a patch.
+    gemini_model: str = "gemini-3.7-flash"
+
+    # YouTube transcripts.
+    supadata_api_key: str = ""
+    supadata_api_key_backup: str = ""
+
+    # --- Note generation --------------------------------------------------
+    # Whether this process should pick up pending notes itself. True for a
+    # long-running server; set false on a serverless host, where a request's
+    # background work is killed the moment the response is sent, and run
+    # `python -m app.worker` somewhere that permits long jobs instead.
+    notes_inline_worker: bool = True
+
+    # A note stuck in `processing` for longer than this is assumed dead and is
+    # retried - a worker can be killed mid-job at any time.
+    notes_stale_after_minutes: int = 15
+
     # --- Object storage (S3 compatible: MinIO locally, R2/S3 in prod) -----
     s3_endpoint_url: str | None = None
     s3_region: str = "auto"

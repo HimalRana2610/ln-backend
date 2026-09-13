@@ -17,6 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 os.environ.setdefault("ENVIRONMENT", "test")
 
+# Tests drive note generation explicitly by calling `NoteService.process`, so
+# the inline background drain must be off. httpx's ASGI transport *does* run
+# background tasks, and leaving it on made every note-creating test wait out the
+# drain's retry backoff — a 5-second suite became 54 seconds.
+os.environ.setdefault("NOTES_INLINE_WORKER", "false")
+
 from app.core.config import settings
 from app.db.base import Base
 from app.db.session import get_db
@@ -48,7 +54,17 @@ async def db_session(engine) -> AsyncGenerator[AsyncSession, None]:
     """A session bound to a transaction that is rolled back after each test."""
     connection = await engine.connect()
     transaction = await connection.begin()
-    session = async_sessionmaker(bind=connection, expire_on_commit=False)()
+    # join_transaction_mode="create_savepoint" is what lets application code
+    # call `commit()` without destroying test isolation: the commit releases a
+    # SAVEPOINT rather than the outer transaction, so the rollback below still
+    # undoes everything. NoteService.create commits deliberately — see the
+    # comment there — and without this every note it creates would survive into
+    # the next test.
+    session = async_sessionmaker(
+        bind=connection,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )()
 
     yield session
 

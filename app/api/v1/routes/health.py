@@ -25,7 +25,7 @@ async def readiness(db: DbSession) -> JSONResponse:
     """Readiness: dependencies are reachable, so it is safe to route traffic here."""
     try:
         await db.execute(text("SELECT 1"))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - any failure means not ready
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={"status": "unavailable", "database": str(exc)},
