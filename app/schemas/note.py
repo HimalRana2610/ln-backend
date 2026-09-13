@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import enum
 import uuid
 from datetime import date as date_type
 from datetime import datetime
@@ -29,6 +30,41 @@ ALLOWED_UPLOAD_TYPES = {
 
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # 200 MB — roughly a 3-hour recording
 
+# Classroom materials and assignment work: whatever a lecture or a student's
+# answer is plausibly made of. Executables and archives of unknown content are
+# not on the list — a class page is not a general file host.
+ALLOWED_ATTACHMENT_TYPES = ALLOWED_UPLOAD_TYPES | {
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.oasis.opendocument.text",
+    "application/vnd.oasis.opendocument.presentation",
+    "application/vnd.oasis.opendocument.spreadsheet",
+    "application/zip",
+    "application/x-zip-compressed",
+    "text/plain",
+    "text/markdown",
+    "text/csv",
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "video/mp4",
+    "video/webm",
+}
+
+MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024  # 100 MB
+
+
+class UploadPurpose(enum.StrEnum):
+    # Source material for AI note generation. Must be something Gemini reads.
+    NOTE = "note"
+    # A file on a classroom post or an assignment submission.
+    ATTACHMENT = "attachment"
+
 
 class PresignUploadRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
@@ -36,15 +72,26 @@ class PresignUploadRequest(BaseModel):
     filename: str = Field(min_length=1, max_length=400)
     content_type: str = Field(min_length=1, max_length=200)
     size_bytes: int | None = Field(default=None, ge=1, le=MAX_UPLOAD_BYTES)
+    # Defaults to `note` so clients written for Phase 2 keep working unchanged.
+    purpose: UploadPurpose = UploadPurpose.NOTE
 
     @field_validator("content_type")
     @classmethod
-    def _supported(cls, value: str) -> str:
-        normalised = value.split(";")[0].strip().lower()
-        if normalised not in ALLOWED_UPLOAD_TYPES:
-            allowed = ", ".join(sorted(ALLOWED_UPLOAD_TYPES))
-            raise ValueError(f"Unsupported file type. Allowed: {allowed}")
-        return normalised
+    def _normalise(cls, value: str) -> str:
+        return value.split(";")[0].strip().lower()
+
+    @model_validator(mode="after")
+    def _supported(self) -> PresignUploadRequest:
+        if self.purpose is UploadPurpose.NOTE:
+            allowed, limit = ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_BYTES
+        else:
+            allowed, limit = ALLOWED_ATTACHMENT_TYPES, MAX_ATTACHMENT_BYTES
+
+        if self.content_type not in allowed:
+            raise ValueError(f"Unsupported file type. Allowed: {', '.join(sorted(allowed))}")
+        if self.size_bytes is not None and self.size_bytes > limit:
+            raise ValueError(f"File is too large. The limit is {limit // (1024 * 1024)} MB")
+        return self
 
 
 class PresignUploadResponse(BaseModel):

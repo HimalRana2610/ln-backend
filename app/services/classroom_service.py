@@ -19,8 +19,10 @@ from app.models.classroom import (
     ClassroomType,
     MemberRole,
 )
+from app.models.note import Asset
 from app.models.user import User
 from app.schemas.classroom import THEME_COLORS, ClassroomRead, MemberRead
+from app.services import storage_service
 
 # Excludes nothing: the old app's codes used the full alphanumeric range and
 # users are expected to copy/paste or scan them rather than transcribe by ear.
@@ -178,7 +180,17 @@ class ClassroomService:
         if classroom is None:
             raise NotFoundError("Classroom not found")
 
-        # Memberships cascade at the database level.
+        # Memberships, notes, posts, submissions and asset rows all cascade at
+        # the database level. The stored objects do not — storage knows nothing
+        # about foreign keys — so they are deleted explicitly first. Every file
+        # attached to anything in a classroom carries its `classroom_id`, which
+        # makes this one query rather than a walk over each kind of attachment.
+        keys = await self.db.scalars(
+            select(Asset.storage_key).where(Asset.classroom_id == classroom_id)
+        )
+        for key in keys.all():
+            storage_service.delete_object(key=key)
+
         await self.db.delete(classroom)
         await self.db.flush()
 

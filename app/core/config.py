@@ -95,6 +95,11 @@ class Settings(BaseSettings):
     s3_bucket: str = "lecture-note"
     s3_presign_ttl_seconds: int = 900
 
+    # Total bytes of files one classroom may hold. Supabase's free tier is 1 GB
+    # for the whole project, and lecture slides eat it far faster than notes;
+    # without a cap the first sign of trouble is every upload failing at once.
+    classroom_storage_limit_mb: int = 300
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:

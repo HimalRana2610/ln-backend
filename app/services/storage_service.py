@@ -12,8 +12,10 @@ outright.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from functools import lru_cache
 from typing import Any
+from urllib.parse import quote
 
 import boto3
 from botocore.client import Config
@@ -75,17 +77,68 @@ def presign_upload(*, key: str, content_type: str) -> str:
     return url
 
 
-def presign_download(*, key: str) -> str:
-    """A short-lived URL for reading an object."""
+def presign_download(*, key: str, filename: str | None = None) -> str:
+    """A short-lived URL for reading an object.
+
+    With a `filename`, storage is told to serve it as an attachment under that
+    name — otherwise the browser saves `3f2a….pdf`, the storage key, rather
+    than the name the teacher uploaded.
+    """
+    params: dict[str, str] = {"Bucket": settings.s3_bucket, "Key": key}
+    if filename:
+        params["ResponseContentDisposition"] = content_disposition(filename)
+
     try:
         url: str = _client().generate_presigned_url(
             "get_object",
-            Params={"Bucket": settings.s3_bucket, "Key": key},
+            Params=params,
             ExpiresIn=settings.s3_presign_ttl_seconds,
         )
     except (BotoCoreError, ClientError) as exc:  # pragma: no cover - network failure
         raise StorageError(f"Could not prepare the download: {exc}") from exc
     return url
+
+
+def content_disposition(filename: str) -> str:
+    """An `attachment` header value that survives non-ASCII filenames.
+
+    The plain `filename=` parameter must be ASCII, so it carries a stripped
+    fallback while RFC 5987's `filename*=` carries the real name.
+    """
+    fallback = "".join(
+        ch if ch.isascii() and ch.isprintable() and ch not in '"\\' else "_" for ch in filename
+    )
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(filename, safe='')}"
+
+
+def object_size(*, key: str) -> int | None:
+    """The stored size of an object, or None when it does not exist.
+
+    The client uploads straight to storage, so this is the only way the API can
+    learn that an upload really finished — and how big it really is, rather
+    than trusting the size the client declared when it asked for the URL.
+    """
+    try:
+        response = _client().head_object(Bucket=settings.s3_bucket, Key=key)
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in {"404", "NoSuchKey", "NotFound"}:
+            return None
+        raise StorageError(f"Could not check the upload: {exc}") from exc  # pragma: no cover
+    except BotoCoreError as exc:  # pragma: no cover - network failure
+        raise StorageError(f"Could not check the upload: {exc}") from exc
+    size: int = response["ContentLength"]
+    return size
+
+
+def list_keys(*, prefix: str = "uploads/") -> Iterator[str]:
+    """Every object key under a prefix. Used by storage reconciliation."""
+    try:
+        paginator = _client().get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=settings.s3_bucket, Prefix=prefix):
+            for item in page.get("Contents", []):
+                yield item["Key"]
+    except (BotoCoreError, ClientError) as exc:  # pragma: no cover - network failure
+        raise StorageError(f"Could not list stored files: {exc}") from exc
 
 
 def download_bytes(*, key: str) -> bytes:
