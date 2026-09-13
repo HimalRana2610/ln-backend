@@ -23,6 +23,7 @@ from app.models.post import ClassroomPost, PostKind, Submission
 from app.models.user import User
 from app.schemas.post import AssetInfo, DownloadLink, PostRead, SubmissionRead
 from app.services import storage_service
+from app.services.push_service import PushMessage, PushService
 
 
 class PostService:
@@ -251,6 +252,22 @@ class PostService:
         self.db.add(post)
         await self.db.flush()
         await self.db.refresh(post)
+
+        if kind is not PostKind.ANNOUNCEMENT:
+            label = "New assignment" if kind is PostKind.ASSIGNMENT else "New material"
+            await PushService(self.db).send_to_classroom(
+                classroom_id,
+                PushMessage(
+                    title=label,
+                    body=title,
+                    data={
+                        "type": kind.value,
+                        "classroom_id": str(classroom_id),
+                        "post_id": str(post.id),
+                    },
+                ),
+                exclude=user.id,
+            )
 
         [read] = await self._with_submission_status([post], user=user, role=member.role)
         return read

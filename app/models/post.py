@@ -62,6 +62,11 @@ class ClassroomPost(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Assignments only. Stored with a timezone so every client can render it in
     # the viewer's own zone rather than the teacher's.
     due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set once `python -m app.reminders` has pushed the "due soon" notice, so a
+    # job run every hour reminds each assignment exactly once.
+    due_reminder_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # SET NULL rather than CASCADE: losing the file must not silently delete the
     # post. The service deletes the asset *and* its object together with the post.

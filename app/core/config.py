@@ -100,6 +100,48 @@ class Settings(BaseSettings):
     # without a cap the first sign of trouble is every upload failing at once.
     classroom_storage_limit_mb: int = 300
 
+    # --- Email (OTP) ------------------------------------------------------
+    # Gmail: smtp.gmail.com:587 with an App Password, not the account password.
+    # Unset outside production, codes are written to the log instead so local
+    # development needs no mail account.
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_email: str = ""
+    smtp_password: str = ""
+    smtp_from_name: str = "LectureNote AI"
+
+    otp_ttl_minutes: int = 10
+    otp_max_attempts: int = 5
+    otp_resend_cooldown_seconds: int = 60
+    otp_max_per_hour: int = 5
+
+    # --- Signed attendance ------------------------------------------------
+    # How far a signed request's timestamp may be from the server's clock.
+    signature_max_skew_seconds: int = 120
+
+    # --- Face recognition -------------------------------------------------
+    # An HTTP service that turns one face photo into an embedding: multipart
+    # field `file`, response `{"embedding": [floats]}` — the shape the old app's
+    # InsightFace service used. Unset, face enrolment reports itself
+    # unavailable. Photos are sent to it and discarded; only vectors are kept.
+    face_embedding_url: str = ""
+    face_embedding_api_key: str = ""
+    face_model_version: str = "insightface"
+    face_match_threshold: float = 0.5
+
+    # --- Push notifications (Firebase Cloud Messaging) ---------------------
+    # A service-account key: either the JSON itself or a path to the file.
+    # Unset, pushes are written to the log instead of sent.
+    fcm_service_account_json: str = ""
+    # Defaults to the key's own `project_id`.
+    fcm_project_id: str = ""
+
+    # --- Live quizzes -----------------------------------------------------
+    # How often clients poll an open quiz. The API has no push channel for
+    # live updates on a serverless host, so this is a documented trade rather
+    # than an accident: returned to clients so both use the same value.
+    quiz_poll_interval_seconds: int = 3
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:
