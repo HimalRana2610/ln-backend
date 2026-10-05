@@ -40,6 +40,12 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["app*"]
 
+# Vercel's zero-config FastAPI support routes every path to this app as-is.
+# Do not add a catch-all rewrite in vercel.json: it replaces the request path,
+# and every route then 404s.
+[tool.vercel]
+entrypoint = "app.main:app"
+
 # ---------------------------------------------------------------------------
 # Tooling
 # ---------------------------------------------------------------------------
